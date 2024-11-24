@@ -2,3 +2,5 @@
 + Should be placed in the same directory with the "infer.py" file.
 - Copiable scripts:
 + git clone https://github.com/HuyLe0913/BKAI_Competition.git
++ cd BKAI_Competition
++ python3 infer.py --image_path image.jpeg
