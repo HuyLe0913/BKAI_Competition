@@ -4,6 +4,7 @@ from torchvision import transforms
 from PIL import Image
 import os
 
+import segmentation_models_pytorch as smp
 def load_model(checkpoint_path, device):
     # Load the trained model
     model = torch.load(checkpoint_path, map_location=device)
@@ -26,18 +27,53 @@ def preprocess_image(image_path, input_size):
     return image_tensor, image
 
 def postprocess_output(output, original_image):
-    # Convert the output tensor to a PIL image
-    output = torch.argmax(output, dim=1).squeeze(0).cpu().numpy()  # Get class predictions
-    output_image = Image.fromarray((output * 255).astype('uint8'))  # Scale for visualization
-    output_image = output_image.resize(original_image.size)  # Resize to original image size
-    return output_image
+    # Ensure output is a PyTorch tensor (it should be if coming directly from the model)
+    if isinstance(output, torch.Tensor):
+        output = torch.argmax(output, dim=1).squeeze(0)  # Get class predictions and remove batch dimension
+    else:
+        raise TypeError(f"Expected output to be a tensor, but got {type(output)}")
+
+    # Move output to CPU for further processing (in case it's on GPU)
+    output = output.cpu().numpy()  # Convert to NumPy for visualization
+
+    # Create the mask image
+    mask = (output * 255).astype('uint8')  # Scale for visualization
+    mask_image = Image.fromarray(mask).convert('RGBA')  # Convert to RGBA for overlay
+
+    # Resize the mask to match the original image size
+    mask_image = mask_image.resize(original_image.size)
+
+    # Create an overlay of the mask on the original image
+    overlay_image = Image.blend(
+        original_image.convert('RGBA'),  # Convert original image to RGBA
+        mask_image, 
+        alpha=0.5  # Adjust transparency for overlay effect
+    )
+    
+    # Combine original image and overlay side-by-side
+    combined_image = Image.new('RGB', (original_image.width * 2, original_image.height))
+    combined_image.paste(original_image, (0, 0))
+    combined_image.paste(overlay_image.convert('RGB'), (original_image.width, 0))
+    
+    return combined_image
+
+
 
 def main(args):
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     
+
+    model = smp.UnetPlusPlus(
+        encoder_name="efficientnet-b7",
+        encoder_weights="imagenet",
+        in_channels=3,
+        classes=3
+    )
+    model.to(device)
     # Load the model
-    checkpoint_path = 'model.pth'  # Update with your checkpoint path
-    model = load_model(checkpoint_path, device)
+    checkpoint_path = os.path.join(os.path.dirname(__file__), 'model.pth')  # Update with your checkpoint path
+    checkpoint = torch.load(checkpoint_path,map_location=torch.device('cpu'))
+    model.load_state_dict(checkpoint['model'])
     
     # Preprocess the input image
     input_size = (224, 224)  # Adjust as per your model's input requirement
