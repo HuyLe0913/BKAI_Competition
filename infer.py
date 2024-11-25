@@ -70,7 +70,7 @@ def main(args):
     model.to(device)
     # Load the model
     checkpoint_path = os.path.join(os.path.dirname(__file__), 'model.pth')  # Update with your checkpoint path
-    checkpoint = torch.load(checkpoint_path,map_location=torch.device('cpu'))
+    checkpoint = torch.load(checkpoint_path,map_location=torch.device(device))
     model.load_state_dict(checkpoint['model'])
     # Preprocess the input image
     input_size = (224, 224)  # Adjust as per your model's input requirement
