@@ -3,8 +3,9 @@ import torch
 from torchvision import transforms
 from PIL import Image
 import os
-
+import matplotlib.pyplot as plt
 import segmentation_models_pytorch as smp
+import torch.nn.functional as F
 def load_model(checkpoint_path, device):
     # Load the trained model
     model = torch.load(checkpoint_path, map_location=device)
@@ -26,36 +27,33 @@ def preprocess_image(image_path, input_size):
     image_tensor = transform(image).unsqueeze(0)  # Add batch dimension
     return image_tensor, image
 
-def postprocess_output(output, original_image):
-    # Ensure output is a PyTorch tensor (it should be if coming directly from the model)
-    if isinstance(output, torch.Tensor):
-        output = torch.argmax(output, dim=1).squeeze(0)  # Get class predictions and remove batch dimension
-    else:
-        raise TypeError(f"Expected output to be a tensor, but got {type(output)}")
+def postprocess_output(output, original_image, input_tensor, output_path):
+    output = torch.argmax(output, dim=1).squeeze(0).cpu()  # Predicted class per pixel
 
-    # Move output to CPU for further processing (in case it's on GPU)
-    output = output.cpu().numpy()  # Convert to NumPy for visualization
+    # Convert prediction to a one-hot encoded mask for visualization
+    one_hot_prediction = F.one_hot(output, num_classes=3).float()  # Assuming 3 classes
+    mask_visual = one_hot_prediction.numpy()  # Convert to NumPy for visualization
 
-    # Create the mask image
-    mask = (output * 255).astype('uint8')  # Scale for visualization
-    mask_image = Image.fromarray(mask).convert('RGBA')  # Convert to RGBA for overlay
-
-    # Resize the mask to match the original image size
-    mask_image = mask_image.resize(original_image.size)
-
-    # Create an overlay of the mask on the original image
-    overlay_image = Image.blend(
-        original_image.convert('RGBA'),  # Convert original image to RGBA
-        mask_image, 
-        alpha=0.5  # Adjust transparency for overlay effect
-    )
+    # Create a Matplotlib figure
+    fig, arr = plt.subplots(1, 2, figsize=(12, 6))  # 1 row, 2 columns for original and prediction
     
-    # Combine original image and overlay side-by-side
-    combined_image = Image.new('RGB', (original_image.width * 2, original_image.height))
-    combined_image.paste(original_image, (0, 0))
-    combined_image.paste(overlay_image.convert('RGB'), (original_image.width, 0))
+    # Display the original image
+    arr[0].imshow(original_image)
+    arr[0].set_title('Original Image')
+    arr[0].axis('off')  # Hide axes for clarity
     
-    return combined_image
+    # Display the prediction
+    arr[1].imshow(mask_visual, interpolation='nearest')  # Visualize the segmentation mask
+    arr[1].set_title('Predicted Segmentation')
+    arr[1].axis('off')  # Hide axes for clarity
+    
+    # Adjust layout
+    plt.tight_layout()
+    
+    # Save the figure
+    plt.savefig(output_path, bbox_inches='tight')
+    print(f"Figure saved at {output_path}")
+    plt.close(fig) 
 
 
 
@@ -74,23 +72,23 @@ def main(args):
     checkpoint_path = os.path.join(os.path.dirname(__file__), 'model.pth')  # Update with your checkpoint path
     checkpoint = torch.load(checkpoint_path,map_location=torch.device('cpu'))
     model.load_state_dict(checkpoint['model'])
-    
     # Preprocess the input image
     input_size = (224, 224)  # Adjust as per your model's input requirement
     image_tensor, original_image = preprocess_image(args.image_path, input_size)
     image_tensor = image_tensor.to(device)
     
     # Perform inference
+    # Perform inference
     with torch.no_grad():
-        output = model(image_tensor)
-    
-    # Postprocess the output
-    segmented_image = postprocess_output(output, original_image)
-    
-    # Save the result
-    output_path = os.path.splitext(args.image_path)[0] + "_segmented.png"
-    segmented_image.save(output_path)
-    print(f"Segmented image saved at: {output_path}")
+        output = model(image_tensor)  # Run the model on input tensor
+
+    # Define output path
+    output_path = os.path.splitext(args.image_path)[0] + "_visualization.png"
+
+    # Postprocess the output and save the grid visualization
+    postprocess_output(output, original_image, image_tensor, output_path)
+
+
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Run inference on a single image")
